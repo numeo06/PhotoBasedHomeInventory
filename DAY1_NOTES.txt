@@ -1,0 +1,256 @@
+PHOTO-BASED HOME INVENTORY - DAY 1 NOTES (Person A)
+====================================================
+
+What Day 1 built, how the pieces fit together, and how to study the code.
+All file paths below are inside the home-inventory/ folder.
+
+
+1. WHAT WAS DONE ON DAY 1
+-------------------------
+- Created the project folder structure from the skeleton layout.
+- Created a Python 3.11 virtual environment (.venv) and installed Flask and
+  Pillow, with versions pinned in requirements.txt.
+- Wrote .gitignore so the venv, the database file, model weights and Python
+  cache files never get committed.
+- Wrote schema.sql (two tables: locations and items).
+- Wrote db.py: every database operation the app will need (save, load,
+  replace, list, search).
+- Wrote app.py with one route, GET /, which shows a placeholder home page.
+- Wrote templates/index.html and static/style.css for that page.
+  static/app.js is empty for now.
+- Wrote a STUB detector (services/detector.py) that returns fake results, so
+  the page can be built before Person B finishes the real AI model.
+- Wrote placeholder files for Person B: config/labels.json,
+  scripts/setup_model.py and tests/test_detector.py.
+- Wrote 25 tests: 21 database tests, 3 contract tests and 1 skipped
+  placeholder test. All pass.
+- Wrote README.md and the REFLECTION.md template.
+
+Nothing yet lets a user upload, save or search from the browser. The database
+functions already exist and are tested; Days 2-4 connect them to the page.
+
+
+2. THE BIG PICTURE (ARCHITECTURE)
+---------------------------------
+The app is a "three-layer" design. Each layer only talks to the one next to it.
+
+   BROWSER (HTML/CSS/JS)          <- what the user sees
+        |   HTTP request  (e.g. GET /)
+        v
+   FLASK  (app.py)                <- the "traffic controller": receives
+        |                            requests, calls the right function,
+        |                            sends back a page or JSON
+        |------------------------.
+        v                        v
+   DATABASE LAYER (db.py)     DETECTOR (services/detector.py)
+        |                        |
+        v                        v
+   SQLite file (inventory.db)  OWL-ViT model (Person B, later)
+
+Why split it like this?
+- app.py never contains SQL. If the database changes, only db.py changes.
+- app.py never contains model code. Person B can swap the stub detector for
+  the real one, and app.py does not change at all.
+- Each piece can be tested on its own. The tests call db.py directly, with no
+  browser or Flask involved.
+
+What happens when you open http://127.0.0.1:5000 :
+  1. The browser sends "GET /" to Flask.
+  2. Flask finds the function decorated with @app.get("/"), which is index()
+     in app.py.
+  3. index() calls db.list_locations() (asks SQLite for the saved locations)
+     and detector.model_status() (asks whether the model is ready).
+  4. index() passes both results to render_template("index.html", ...).
+  5. Jinja fills the {{ ... }} placeholders in index.html with real values.
+  6. Flask sends the finished HTML back. The browser then requests
+     /static/style.css and /static/app.js, and Flask serves those files as-is.
+
+
+3. FILE BY FILE
+---------------
+schema.sql
+  The "blueprint" of the database: two tables.
+  - locations: one row per place (e.g. "Garage / Workbench / Top drawer").
+  - items: one row per item; location_id points to the location it is in.
+  Key ideas:
+  - FOREIGN KEY (location_id REFERENCES locations(id)): an item must belong
+    to a real location.
+  - ON DELETE CASCADE: deleting a location automatically deletes its items.
+  - UNIQUE (location_id, name_norm): the same item cannot appear twice in
+    one location, but it can appear in different locations.
+  - Each text value is stored twice: "label"/"name" is what the user typed
+    (for display), and "label_norm"/"name_norm" is a cleaned-up copy used
+    for matching.
+  - IF NOT EXISTS: makes the file safe to run on every startup.
+
+db.py
+  The only file that talks to SQLite.
+  - connect()        Opens a connection and turns on foreign keys. SQLite
+                     turns them OFF by default, on every new connection.
+  - init_db()        Runs schema.sql.
+  - normalize(text)  "  Scissors " -> "scissors" (strip + casefold).
+                     casefold() is a stronger lower() that also handles
+                     characters like the German ß.
+  - save_location    Inserts a location and its items in one TRANSACTION.
+                     "with conn:" means either everything is saved, or, if
+                     anything fails, nothing is. You never get half a save.
+  - get_location     Returns {"id", "label", "items"}, or None.
+  - replace_items    Updates the label and swaps the whole item list, in one
+                     transaction.
+  - list_locations   Every location plus how many items it has (LEFT JOIN +
+                     COUNT, so empty locations still show up).
+  - search_items     Finds items whose name contains the search text.
+  Key ideas:
+  - Parameterized SQL: values go in as "?" placeholders, never pasted into
+    the SQL string. This prevents SQL injection.
+  - instr() rather than LIKE: with LIKE, "%" and "_" are wildcards, so
+    searching "%" would match everything. instr() treats them as plain
+    characters.
+  - DB_PATH is a variable so the tests can point it at a temporary file.
+
+app.py
+  Creates the Flask app, runs db.init_db() once at startup, and defines the
+  GET / route. Later days add POST /scan, /locations and /search here.
+
+templates/index.html
+  A Jinja template: normal HTML plus {{ value }} and {% logic %} tags.
+  Jinja automatically "escapes" values: if someone saves an item called
+  <script>, it is shown as text instead of running as code.
+  url_for('static', filename='style.css') builds the correct link to a
+  static file.
+
+static/style.css, static/app.js
+  Styling, and (from Day 2) browser-side behaviour such as the photo preview
+  and editable item rows.
+
+services/detector.py   (Person B's file; currently a STUB)
+  The agreed "contract" between you and Person B:
+    model_status() -> {"ready": bool, "detail": str}
+    scan(image_bytes) -> {"status": ..., "items": [{"name", "score"}]}
+  As long as both of you keep this shape, your halves fit together.
+
+tests/
+  - test_db.py        Each test gets a fresh, temporary database (setUp)
+                      that is deleted afterwards (tearDown).
+  - test_contract.py  Checks the detector returns the agreed shape. Must
+                      keep passing after Person B adds the real model.
+  - test_detector.py  Placeholder for Person B; skipped for now.
+
+.venv/ and requirements.txt
+  The venv is a private copy of Python 3.11 just for this project, so its
+  packages do not mix with other projects. requirements.txt lists the exact
+  versions, so your partner installs the same ones.
+
+
+4. HOW TO STUDY THE CODEBASE (RECOMMENDED ORDER)
+------------------------------------------------
+Read data first, then logic, then the web layer:
+
+  1. schema.sql         What data exists.
+  2. db.py              How data is saved and read.
+  3. tests/test_db.py   Examples of every db function being used. Tests are
+                        the best "usage manual" for code you did not write.
+  4. services/detector.py   The contract with Person B.
+  5. app.py             How a request reaches db.py and detector.py.
+  6. templates/index.html   How the data becomes a web page.
+
+For each file, try to answer: What goes in? What comes out? Who calls it?
+
+
+5. YES, USE BREAKPOINTS - HERE IS HOW
+-------------------------------------
+A breakpoint pauses the program on a line, so you can look at every
+variable's value at that moment and then step through line by line.
+
+Setup (one time): in VS Code, press Ctrl+Shift+P, choose
+"Python: Select Interpreter", and pick
+home-inventory\.venv\Scripts\python.exe.
+
+Then create a debug configuration. Open the Run and Debug panel
+(Ctrl+Shift+D), click "create a launch.json file", choose "Python Debugger",
+and replace the file's contents with:
+
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Flask app",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "flask",
+      "args": ["--app", "app", "run", "--no-debugger", "--no-reload"],
+      "cwd": "${workspaceFolder}/home-inventory",
+      "jinja": true
+    },
+    {
+      "name": "All tests",
+      "type": "debugpy",
+      "request": "launch",
+      "module": "unittest",
+      "args": ["discover", "tests", "-v"],
+      "cwd": "${workspaceFolder}/home-inventory"
+    }
+  ]
+}
+
+(This assumes the folder you opened in VS Code is PhotoBasedHomeInventory.
+If you opened home-inventory itself, use "cwd": "${workspaceFolder}".)
+
+Exercise A - follow a web request:
+  1. In app.py, click left of the line number on "return render_template(".
+     A red dot appears.
+  2. Pick "Flask app" in the Run and Debug dropdown and press F5.
+  3. Open http://127.0.0.1:5000 in your browser. VS Code pauses at the dot.
+  4. Look at the VARIABLES panel on the left. Nothing is assigned yet.
+  5. Press F11 (Step Into) to go inside db.list_locations(). Then press F10
+     (Step Over) to move line by line, and watch "rows" fill in.
+  6. Press Shift+F11 (Step Out) to return, and F5 to continue.
+
+Exercise B - watch a save happen:
+  1. Put a breakpoint in db.py on the line "location_id = cur.lastrowid".
+  2. Pick "All tests" and press F5.
+  3. When it stops, hover over "display", "norm" and "location_id".
+  4. Look at the CALL STACK panel: it shows which test called this function.
+     That is how you learn "who calls what".
+
+Exercise C - prove a rule to yourself:
+  Put a breakpoint inside _clean_names() in db.py and run the tests. Watch
+  how "Scissors", "scissors" and " SCISSORS " become one item.
+
+Useful keys: F5 continue, F10 step over, F11 step into, Shift+F11 step out,
+Shift+F5 stop. You can also type expressions into the DEBUG CONSOLE while
+paused, e.g. normalize("  HeLLo ").
+
+
+6. OTHER WAYS TO LEARN BY POKING AT IT
+--------------------------------------
+- Change one thing and re-run the tests. For example, delete the line
+  conn.execute("PRAGMA foreign_keys = ON") in db.py and run the tests. Three
+  tests fail (the foreign-key check, the missing-location insert and the
+  cascade delete), which shows you why that line exists. Then put the
+  line back.
+- Try the database from the Python prompt (with .venv active, run "python",
+  then type each line):
+      import db
+      db.DB_PATH = "scratch.db"
+      db.init_db()
+      i = db.save_location("Garage", ["Scissors", "scissors", "pliers"])
+      db.get_location(i)
+      db.search_items("SCISS")
+      exit()
+  Then delete scratch.db. (*.db files are git-ignored anyway.)
+- Ask the AI "explain this function line by line" on a selected block of
+  code, and then check its answer with the debugger. That also makes a good
+  REFLECTION.md entry.
+
+
+7. WHAT COMES NEXT (DAY 2)
+--------------------------
+- Upload page: location label field, image input, photo preview (in the
+  browser only), editable item rows, and a manual "add item" box.
+- POST /scan route, still using the stub detector.
+- Server-side upload checks with Pillow: missing file, size cap, image
+  dimensions, real JPEG/PNG (actually decoding the image, not trusting the
+  file extension).
+- A different message for each state: scanning, invalid file, no detections,
+  model unavailable, scan error.

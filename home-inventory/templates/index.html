@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Photo-Based Home Inventory</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main>
+    <h1>Photo-Based Home Inventory</h1>
+    <p class="lead">
+      Answer "where did I put that?" Upload a photo of a drawer, shelf or toolbox,
+      review the items a local AI detector suggests, and save them under a location
+      so you can search for them later. Everything runs on your own computer.
+    </p>
+
+    <section class="notice">
+      <h2>Under construction</h2>
+      <p>The inventory application is currently being developed. Photo upload, review and search are coming soon.</p>
+    </section>
+
+    <section class="status">
+      <h2>Status</h2>
+      <ul>
+        <li>Database: ready ({{ locations|length }} saved location{{ '' if locations|length == 1 else 's' }})</li>
+        <li>Detector: {{ 'ready' if model.ready else 'not ready' }} &mdash; {{ model.detail }}</li>
+      </ul>
+    </section>
+  </main>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

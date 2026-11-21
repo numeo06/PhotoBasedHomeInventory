@@ -1,0 +1,4 @@
+{
+  "labels": ["scissors", "screwdriver", "pliers", "tape measure", "flashlight", "marker", "stapler"],
+  "score_threshold": 0.1
+}
