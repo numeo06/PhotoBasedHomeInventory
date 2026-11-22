@@ -1,7 +1,5 @@
 from pathlib import Path
 
-from huggingface_hub import snapshot_download
-
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 MODEL_DIR = PROJECT_ROOT / "models" / "owlvit-base-patch32"
 MODEL_ID = "google/owlvit-base-patch32"
@@ -19,6 +17,8 @@ MODEL_FILES = [
 
 
 def main():
+    from huggingface_hub import snapshot_download
+
     snapshot_download(
         repo_id=MODEL_ID,
         revision=REVISION,

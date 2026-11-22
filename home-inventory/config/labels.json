@@ -1,0 +1,20 @@
+{
+  "threshold": 0.12,
+  "labels": [
+    "scissors",
+    "screwdriver",
+    "pliers",
+    "tape measure",
+    "flashlight",
+    "marker",
+    "stapler",
+    "laundry detergent jug",
+    "dishwasher detergent container",
+    "box of borax",
+    "spray bottle",
+    "hammer",
+    "wrench",
+    "roll of masking tape",
+    "wire stripper"
+  ]
+}
