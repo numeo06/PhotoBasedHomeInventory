@@ -1,0 +1,30 @@
+# Virtual environment
+.venv/
+venv/
+
+# SQLite databases (created at runtime)
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Model weights (downloaded by scripts/setup_model.py, never committed)
+models/*
+!models/.gitkeep
+
+# Python cache and build files
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Flask
+instance/
+.flaskenv
+.env
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

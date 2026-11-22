@@ -1,9 +1,12 @@
 import json
+import logging
 from io import BytesIO
 from threading import Lock
+from time import perf_counter
 
 from scripts.setup_model import MODEL_DIR, MODEL_FILES, PROJECT_ROOT
 
+logger = logging.getLogger(__name__)
 _model_lock = Lock()
 _model_components = None
 
@@ -12,15 +15,23 @@ class ModelUnavailableError(FileNotFoundError):
     pass
 
 
+def model_status():
+    """Report whether the required local model files are present."""
+    missing = [name for name in MODEL_FILES if not (MODEL_DIR / name).is_file()]
+    if missing:
+        return {"ready": False, "detail": f"Missing local model files: {', '.join(missing)}"}
+    return {"ready": True, "detail": "Local OWL-ViT model files are present."}
+
+
 def load_model():
     """Load and cache the local processor and CPU model."""
     global _model_components
 
     with _model_lock:
         if _model_components is None:
-            missing = [name for name in MODEL_FILES if not (MODEL_DIR / name).is_file()]
-            if missing:
-                raise ModelUnavailableError(f"Missing local model files: {', '.join(missing)}")
+            readiness = model_status()
+            if not readiness["ready"]:
+                raise ModelUnavailableError(readiness["detail"])
 
             from transformers import OwlViTForObjectDetection, OwlViTProcessor
 
@@ -72,20 +83,25 @@ def scan_detections(image_bytes, threshold=None):
 
 def scan(image_bytes):
     """Scan encoded photo bytes and return a JSON-serializable result."""
+    started = perf_counter()
     try:
         detections = scan_detections(image_bytes)
     except ModelUnavailableError:
-        return {"status": "model_unavailable", "items": []}
+        result = {"status": "model_unavailable", "items": []}
     except Exception:
-        return {"status": "scan_error", "items": []}
-
-    if not detections:
-        return {"status": "no_detections", "items": []}
-
-    return {
-        "status": "ok",
-        "items": [
-            {"name": item["name"], "score": round(item["score"], 3)}
-            for item in detections
-        ],
-    }
+        result = {"status": "scan_error", "items": []}
+    else:
+        result = {
+            "status": "ok" if detections else "no_detections",
+            "items": [
+                {"name": item["name"], "score": round(item["score"], 3)}
+                for item in detections
+            ],
+        }
+    logger.info(
+        "Detector scan status=%s elapsed_ms=%.1f items=%d",
+        result["status"],
+        (perf_counter() - started) * 1000,
+        len(result["items"]),
+    )
+    return result
