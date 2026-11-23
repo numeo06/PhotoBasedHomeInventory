@@ -1,0 +1,262 @@
+PHOTO-BASED HOME INVENTORY - DAY 2 NOTES (Person A)
+====================================================
+
+What Day 2 built, how a scan travels through the app, and how to study the
+code. All file paths below are inside the home-inventory/ folder unless they
+start with "..".
+
+
+1. WHAT WAS DONE ON DAY 2
+-------------------------
+- Built the upload page ("SnapSort") in the retro desktop style: sidebar,
+  location field, photo picker with drag and drop, a browser-only preview,
+  editable item rows, a manual "add item" box and a Scan Items button.
+- Added POST /scan to app.py. It validates the upload with Pillow and then
+  calls Person B's real detector (services.detector.scan). There is no mock:
+  the team decided to wire the real detector directly, which also covered
+  B's planned Day 3 wiring step.
+- Gave every scan state its own message: scanning, success, invalid file,
+  no detections, model unavailable, scan error, and "can't reach the app".
+  Manual entry keeps working in all of them, with Retry where it helps.
+- Made sure the photo never touches the disk (see "in-memory uploads"
+  below).
+- Turned on logging so the detector's timing line shows in the terminal.
+- Wrote tests/test_app.py: 20 route tests. The whole suite is now 45 tests
+  (1 skipped placeholder of B's) and all pass.
+- Installed B's model dependencies in ../.venv (repo root), downloaded the
+  model, and confirmed B's smoke test gives the same results.
+- Updated my README sections with the Day 2 decisions.
+
+Day 2 decisions (also in README.md):
+- Multipart field name: photo
+- Max file size: 10 MB. Max image size: 4096 x 4096 pixels.
+- JPEG and PNG only, checked by decoding the image, not by the extension.
+- HTTP codes: 200 ok / no_detections, 503 model_unavailable,
+  500 scan_error, 400 for a rejected upload (status "invalid_file").
+- History, Settings and Help are shown as "soon". No Save button until Day 4.
+
+
+2. THE BIG PICTURE: WHAT HAPPENS WHEN YOU SCAN
+----------------------------------------------
+   BROWSER (app.js)
+     1. You pick a photo. app.js checks type and size, and shows a preview
+        using URL.createObjectURL(file). The preview never leaves your
+        computer.
+     2. You click Scan Items. app.js puts the file in a FormData under the
+        field name "photo" and calls fetch("/scan", POST).
+        |
+        v
+   FLASK (app.py, scan())
+     3. request.files.get("photo") gets the upload, held in memory.
+     4. validate_photo(data) checks: not empty, <= 10 MB, Pillow says it is
+        JPEG or PNG, <= 4096 px per side, and it fully decodes.
+        If anything fails: 400 {"status": "invalid_file", "reason", ...}
+     5. detector.scan(data) runs OWL-ViT (Person B's code).
+     6. The detector's dict goes back as JSON, with an HTTP code chosen
+        from its status (SCAN_HTTP_STATUS).
+        |
+        v
+   BROWSER (app.js, handleScanResult)
+     7. "ok": the item names become editable rows. Any other status: a
+        message card with the right buttons.
+
+Nothing is saved to the database yet. The rows only live in the page until
+Day 4 adds POST /locations.
+
+
+3. FILE BY FILE
+---------------
+app.py
+  - UPLOAD_FIELD, MAX_UPLOAD_BYTES, MAX_DIMENSION: the limits, in one place.
+    index() passes them into the template, so the page and the server can
+    never disagree.
+  - InMemoryUploadRequest: Flask (through Werkzeug) normally writes any
+    upload over 500 KB to a temporary file on disk. Phone photos are 1-3 MB,
+    so they would touch the disk. Overriding _get_file_stream() to return a
+    BytesIO keeps the upload in RAM.
+  - MAX_CONTENT_LENGTH: a hard ceiling on the whole request, so nobody can
+    fill the memory. Anything bigger triggers request_too_large(), which
+    answers in the same JSON shape as other rejected uploads.
+  - validate_photo():
+      Image.open() reads only the header, so the size check runs BEFORE any
+      pixels are decoded. That protects against "decompression bombs": tiny
+      files that decode into giant images.
+      image.load() then really decodes it, which catches truncated or
+      corrupted files.
+      The extension and the browser's content type are never trusted. A
+      text file renamed .png fails because Pillow can't recognise it.
+  - InvalidUpload: a custom exception carrying a short "reason" code and a
+    human message. The route turns it into a 400 response.
+  - scan(): reads the bytes, validates them, calls detector.scan, logs the
+    time, and returns jsonify(result) with the mapped HTTP code.
+  - logging.basicConfig(level=INFO): without this, Python silently drops
+    INFO logs, so B's "Detector scan ... elapsed_ms=..." line never showed.
+
+templates/index.html
+  - <body data-max-bytes=... data-upload-field=...>: the server hands its
+    limits to JavaScript through data- attributes (read in app.js with
+    document.body.dataset).
+  - The hidden <svg> at the top holds every icon as a <symbol>. Icons are
+    drawn with <svg><use href="#i-trash"/></svg>. No icon CDN, so it works
+    offline.
+  - <label for="photo-input"> wraps the dropzone, so clicking anywhere on
+    it opens the file dialog.
+  - <template id="item-row-template"> is HTML that is never shown. app.js
+    clones it for each item row.
+  - role="status" aria-live="polite" on the message card makes screen
+    readers announce new messages.
+  - {{ model.detail }} etc. are escaped by Jinja automatically.
+
+static/app.js
+  - Everything is inside (function () { ... })(), so nothing leaks into
+    the global scope.
+  - State is three variables: currentFile, previewUrl, scanning.
+  - selectFile(): runs the quick browser checks, then shows the preview.
+    URL.revokeObjectURL() frees the old preview's memory.
+  - scanPhoto(): async/await around fetch(). Three outcomes:
+      the server answered with JSON  -> handleScanResult(data)
+      the server answered, not JSON  -> treated as scan_error
+      fetch itself threw             -> "Can't Reach the App" (Flask stopped)
+  - SECURITY: item names are only written with input.value, textContent
+    and setAttribute, never innerHTML. innerHTML would run any HTML inside
+    a name (an "XSS" attack). Try it: add an item called <b>hi</b>. It
+    shows as plain text.
+  - row.dataset.source is "detector" for untouched suggestions and
+    "manual" for anything you typed or edited. A rescan removes only
+    "detector" rows, so your edits survive.
+  - findRow() compares lowercased, trimmed names, so "Hammer" and "hammer"
+    count as the same item (like db.normalize on the server).
+
+static/style.css
+  - :root holds the colour palette as variables (--plum, --mustard, ...).
+    Change a colour once and it changes everywhere.
+  - [hidden] { display: none !important; } : without this, a button with
+    display: inline-flex ignores the hidden attribute.
+  - grid-template-columns: minmax(0, 1fr) : a plain 1fr column grows to fit
+    a big photo's natural width and pushes the page off a phone screen.
+    minmax(0, 1fr) lets it shrink.
+  - @media (max-width: 760px): on phones the sidebar becomes a top bar and
+    everything stacks into one column.
+
+tests/test_app.py
+  - setUpModule() points db.DB_PATH at a temp file BEFORE importing app,
+    because app.py runs db.init_db() as soon as it is imported.
+  - self.client = app.test_client() sends fake HTTP requests without
+    starting a server.
+  - mock.patch.object(app_module.detector, "scan", return_value=...)
+    temporarily replaces the real detector, so each status can be tested
+    in milliseconds without the model. scan.assert_not_called() proves
+    rejected uploads never reach the detector.
+  - test_large_upload_never_spools_to_disk makes Werkzeug's temp-file
+    function raise an error, then uploads a 1.5 MB photo. If the photo
+    ever went to disk, the test would fail.
+  - RealDetectorThroughFlask runs the real model on both sample photos.
+    @unittest.skipUnless skips it on machines without the model.
+
+
+4. ENVIRONMENT (WHAT CHANGED)
+-----------------------------
+- Use the venv at the REPO ROOT: ..\.venv (Person B's convention). The old
+  home-inventory\.venv from Day 1 only has Flask and Pillow and can be
+  deleted.
+- This laptop is Windows on ARM64 (Snapdragon), and B's install steps fail
+  on it:
+    torchvision has no ARM64 build. It was skipped; the app never imports
+    it.
+    PyYAML has no ARM64 build and needs a C compiler, so install it as
+    pure Python first:  $env:PYYAML_FORCE_LIBYAML = '0'
+- The model lives in home-inventory\models\owlvit-base-patch32 (git-ignored).
+
+Run the app (from home-inventory):
+    ..\.venv\Scripts\python.exe -m flask --app app run
+    then open http://127.0.0.1:5000
+Run the tests:
+    ..\.venv\Scripts\python.exe -m unittest discover tests -v
+Run B's smoke test:
+    ..\.venv\Scripts\python.exe -m tests.scan_samples
+
+Timings on this laptop: first scan ~10 s (loads the model), then ~3 s.
+
+
+5. HOW TO STUDY THE DAY 2 CODE (RECOMMENDED ORDER)
+--------------------------------------------------
+  1. app.py, top constants   The rules (limits, HTTP codes).
+  2. app.py, validate_photo  What counts as a valid photo.
+  3. tests/test_app.py       One test per rule. Read a test, then find the
+                             line in app.py that makes it pass.
+  4. templates/index.html    The page's skeleton and element ids.
+  5. static/app.js           Start at scanPhoto() and handleScanResult(),
+                             then the item-row functions.
+  6. static/style.css        Last; it only changes how things look.
+
+For each function ask: What goes in? What comes out? Who calls it?
+
+
+6. BREAKPOINTS FOR DAY 2
+------------------------
+Use the "Flask app" debug configuration from DAY1_NOTES (section 5), but
+point VS Code at the new interpreter: Ctrl+Shift+P, "Python: Select
+Interpreter", then pick ..\.venv\Scripts\python.exe at the repo root.
+
+Exercise A - follow a scan through Flask:
+  1. Put a breakpoint on "data = upload.read(...)" in scan() in app.py.
+  2. F5 with "Flask app", open the page, choose drawer2.jpg, click Scan.
+  3. Hover over "upload": see .filename and .mimetype.
+  4. F10 past read(); len(data) is the photo size in bytes.
+  5. F11 into validate_photo() and watch image.format and image.size.
+  6. Step over detector.scan(data) (F10). It is slow the first time. Then
+     look at "result".
+
+Exercise B - watch the browser side (browser DevTools, not VS Code):
+  1. In the browser press F12, open Sources, find static/app.js.
+  2. Click the line number inside handleScanResult() to add a breakpoint.
+  3. Scan a photo. When it pauses, hover over "data".
+  4. The Network tab shows the /scan request: its "photo" field, the
+     status code (200/400/...) and the JSON response.
+
+Exercise C - prove the validation:
+  With a breakpoint in validate_photo, upload a .txt file renamed to .png
+  and step until the exception. Which line raises, and which except block
+  catches it?
+
+
+7. OTHER WAYS TO LEARN BY POKING AT IT
+--------------------------------------
+- Delete "app.request_class = InMemoryUploadRequest" from app.py and run
+  the tests: test_large_upload_never_spools_to_disk fails. That is what
+  the class is for. Then put the line back.
+- Change MAX_DIMENSION to 1000 and reload the page: the hint text under
+  "Choose a Photo" changes too, because the template reads the same
+  constant. Scanning drawer1.jpg (2160 x 2880) is now rejected. Change it
+  back.
+- In app.js, change one "textContent" to "innerHTML", add an item called
+  <img src=x onerror=alert(1)>, and see why we never use innerHTML. Then
+  change it back.
+- Stop Flask while the page is open and click Scan: you get "Can't Reach
+  the App" instead of a broken page.
+
+
+8. COORDINATION WITH PERSON B
+-----------------------------
+- B's Day 3 handoff planned for me to build a mock POST /scan and for B to
+  wire the real detector. We wired the real detector directly instead, so
+  B should review the route rather than rewire it.
+- Handoff sent: Day_2_Role_A_Upload_Handoff.pdf (in Downloads).
+- Asked B to: pin torch/transformers/huggingface_hub in requirements.txt,
+  merge B's README text (appended at the bottom of home-inventory/README.md)
+  into one README, and add the ARM64 install notes.
+
+
+9. WHAT COMES NEXT
+------------------
+Day 3 (together with B):
+- Joint browser check: a fresh drawer photo, rename/remove/add, a plain
+  image (no detections), an invalid file, an oversized file, the model
+  folder temporarily renamed (model unavailable), and two scans to compare
+  first-load and warm timings in the terminal.
+- Write a REFLECTION.md entry (the in-memory upload fix is a good "real
+  problem" entry).
+Day 4:
+- POST /locations, GET/POST /locations/<id>, GET /search, using the db.py
+  functions from Day 1.
+- Save button, saved-locations list (History) and a search box on the page.

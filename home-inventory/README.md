@@ -94,18 +94,36 @@ detector.scan(image_bytes) -> {"status": "ok" | "no_detections" | "model_unavail
 - Blank item names are skipped. An empty location label is rejected (`ValueError`).
 - `replace_items` raises `LookupError` if the location id does not exist.
 - Search is a literal, case-insensitive substring match using `instr()`, so `%` and `_` are plain characters.
-- Still to decide: the upload size cap, max image dimensions and HTTP codes for scan failures (Day 2).
+
+## Day 2 decisions: `POST /scan`
+
+- Multipart field name: `photo`. One JPEG or PNG, at most **10 MB** and **4096 x 4096 px**.
+- The server checks the type by decoding the file with Pillow (header, format, size, then a full decode),
+  never by trusting the extension or the browser's content type. GIF, WebP, HEIC and corrupted files are rejected.
+- The photo stays in memory: uploads are never spooled to a temp file, written to disk or saved in the database.
+- Responses (the detector's JSON is passed through unchanged):
+
+| Case | HTTP | Body |
+|---|---|---|
+| Suggestions found | 200 | `{"status": "ok", "items": [{"name", "score"}]}` |
+| Nothing above threshold | 200 | `{"status": "no_detections", "items": []}` |
+| Model files missing | 503 | `{"status": "model_unavailable", "items": []}` |
+| Inference or loading failed | 500 | `{"status": "scan_error", "items": []}` |
+| Rejected upload | 400 | `{"status": "invalid_file", "reason": ..., "message": ..., "items": []}` |
+
+  `reason` is one of `missing_file`, `file_too_large`, `unsupported_type`, `dimensions_too_large`.
+  `invalid_file` comes from the route's validation only; `detector.scan()` keeps its four statuses.
+- Each scan logs its elapsed time in the Flask terminal.
 
 ## What is stored
 
 Locations (label, timestamps) and confirmed item names. Photos are never stored.
 
-## Current limitations (Day 1)
+## Current limitations (Day 2)
 
-- The home page is a placeholder: no upload, review, save or search UI yet.
-- Only `GET /` exists. `POST /scan`, `/locations` and `/search` come on Days 2 to 4.
-- The detector is a stub that returns fake suggestions; the real OWL-ViT model is not installed.
-- `scripts/setup_model.py` and `tests/test_detector.py` are placeholders for Person B.
+- Saving, reopening and searching locations (`/locations`, `/search`) come on Day 4. The upload page
+  has no Save button yet, and History, Settings and Help are marked "soon".
+- The detector only suggests labels from `config/labels.json`; everything else is added by hand.
 # PhotoBasedHomeInventory
 Local web app that answers “where did I put that?”: upload a drawer photo, review AI-suggested items from an on-device OWL-ViT model, save them to SQLite, and search by keyword. No API key needed.
 
