@@ -124,6 +124,7 @@ def scan():
     """
     upload = request.files.get(UPLOAD_FIELD)
     if upload is None or not upload.filename:
+        logger.info("Rejected upload reason=missing_file")
         return _invalid("missing_file", "No photo was uploaded. Please choose a photo.")
 
     data = upload.read(MAX_UPLOAD_BYTES + 1)
@@ -147,4 +148,5 @@ def scan():
 @app.errorhandler(RequestEntityTooLarge)
 def request_too_large(_exc):
     """The request body is over MAX_CONTENT_LENGTH: answer in the /scan JSON shape."""
+    logger.info("Rejected upload reason=file_too_large content_length=%s", request.content_length)
     return _invalid("file_too_large", "The file is larger than 10 MB. Please choose a smaller image.")

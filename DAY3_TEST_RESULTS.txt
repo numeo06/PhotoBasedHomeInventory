@@ -1,0 +1,177 @@
+PHOTO-BASED HOME INVENTORY - DAY 3 TEST MATRIX RESULTS
+======================================================
+
+Date:      Sun Nov 22, 2026
+Tested by: Person A (with AI assistance), branch a/upload-page @ 32b1a3f
+Machine:   Windows 11 on ARM64 (Snapdragon X), Python 3.11.9,
+           torch 2.9.1+cpu, transformers 4.57.1, OWL-ViT base patch32
+           (revision cbc355fb...), threshold 0.12
+
+Overall:   ALL CASES PASS. One detection-quality observation (case 1);
+           two small findings were fixed the same day (section 5). Still needs Person B's review
+           and the joint check with both of us at the browser (section 6).
+
+
+1. HOW THE TESTS WERE RUN
+-------------------------
+- The real app (real routes, real OWL-ViT detector) was started fresh, so
+  the first scan includes loading the model.
+- Browser cases: headless Microsoft Edge loaded the real upload page and
+  did what a user would do: picked the file, clicked Scan Items, edited
+  rows and added an item by hand. The page's resulting state (message
+  title and text, rows, buttons) was then read back and screenshotted.
+- Server cases: the same uploads were sent straight to POST /scan with
+  curl, to prove the server rejects bad files even if the browser's own
+  checks are bypassed.
+- Missing model: the real model folder was renamed while the server was
+  stopped, the case was run, and the folder was renamed back afterwards
+  (verified restored).
+- Scan error: a separate test server forced the inference step to raise
+  an exception. No project file was changed for this.
+- The test database was a temporary copy; inventory.db was not touched.
+
+
+2. THE PLAN'S TEST MATRIX (Build Plan, Day 3)
+---------------------------------------------
+Case 1: A new drawer photo not used before                         PASS
+  Photo:    kitchen drawer of cooking utensils (ladles, spatulas,
+            slotted spoon, pasta server), never scanned before.
+  Expected: real suggestions, scan time logged.
+  Result:   HTTP 200, status ok, 1 suggestion: "scissors" (0.144).
+            Log: "Detector scan status=ok elapsed_ms=6501.7 items=1".
+  Note:     Inference really ran, but the suggestion is WRONG: there
+            are no scissors. The label list (config/labels.json) has
+            only tools and cleaning products, so kitchen utensils can't
+            be found. Even at threshold 0.08 nothing else appears. This
+            is the "fixed label list" limitation from the plan; the user
+            removes "scissors" and adds the utensils by hand.
+
+Case 2: A plain white image                                         PASS
+  Expected: no_detections message, manual entry still works.
+  Result:   HTTP 200, status no_detections. Page: "Nothing Recognised -
+            The detector didn't find any of its known items in this
+            photo. Add items by hand below, or try another photo."
+            Retry and Choose a Photo visible; manual entry worked.
+
+Case 3: A text file renamed .png                                    PASS
+  Expected: invalid-file message.
+  Browser:  rejected before upload: "Invalid File Type - This file could
+            not be read as an image. Please choose a JPEG or PNG photo."
+            Choose a Photo visible; Scan button stays disabled.
+  Server:   HTTP 400 {"status":"invalid_file","reason":"unsupported_type",
+            "message":"This file is not a valid JPEG or PNG image."}
+
+Case 4: A file over the size cap (11 MB)                            PASS
+  Expected: oversized-file message.
+  Browser:  rejected before upload: "File Too Large - Your file is
+            11.0 MB. The limit is 10.0 MB. Please choose a smaller image."
+  Server:   HTTP 400 {"status":"invalid_file","reason":"file_too_large",
+            "message":"The file is larger than 10 MB. ..."}
+
+Case 5: Model folder temporarily renamed                            PASS
+  Expected: model-unavailable message and a readiness warning.
+  Result:   GET / shows the "Detector not ready" banner.
+            Scan: HTTP 503, status model_unavailable. Page: "Model
+            Unavailable - The local model files are missing. Run
+            scripts/setup_model.py, then try again. You can still add
+            items by hand." Retry visible; manual entry worked.
+            Folder renamed back and verified afterwards.
+
+Case 6: Two scans in a row                                          PASS
+  Expected: second is faster than the first.
+  Result:   1st scan (cold, loads model): 6.5 s
+            2nd scan (same photo, warm):   1.8 s
+            Later warm scans:              1.7 - 1.9 s
+            All well inside the 30-second target.
+
+
+3. EXTRA CHECKS FROM B'S DAY 3 HANDOFF
+--------------------------------------
+Rename, remove and add an item                                      PASS
+  Photo:   drawer2.jpg. Suggestions: hammer, roll of masking tape, wire
+           stripper, stapler, wrench, scissors, pliers.
+  Did:     renamed "hammer" to "claw hammer", removed "stapler" (a known
+           false detection), added "screwdriver" (a known miss).
+  Result:  claw hammer, roll of masking tape, wire stripper, wrench,
+           scissors, pliers, screwdriver. Correct.
+
+Scan failure (scan_error)                                           PASS
+  Result:  HTTP 500, status scan_error. Page: "Scan Failed - Something
+           went wrong while scanning. Retry, or enter items manually
+           below." Retry visible; manual entry worked.
+
+No file sent                                                        PASS
+  Result:  HTTP 400, reason missing_file, "No photo was uploaded."
+
+Distinct messages                                                   PASS
+  Each state has its own title, colour and text: Scan Complete! (green),
+  Nothing Recognised (peach), Invalid File Type / File Too Large /
+  Model Unavailable / Scan Failed (pink).
+
+Retry and manual entry in every failure state                       PASS
+  Manual entry worked in all 8 runs. Retry appears where a re-scan can
+  help (no detections, model unavailable, scan error); "Choose a Photo"
+  appears where the file itself is the problem (invalid, too large).
+
+Photo not stored                                                    PASS
+  Covered by tests/test_app.py: uploads stay in memory and POST /scan
+  writes nothing to the database.
+
+Unit tests: python -m unittest discover tests  ->  46 passed, 1 skipped
+(B's placeholder in test_detector.py), after the fixes in section 5.
+
+
+4. SUMMARY TABLE
+----------------
+  Case                          HTTP  Status / message              Result
+  ----------------------------  ----  ----------------------------  ------
+  New photo (kitchen drawer)    200   ok, 1 item (wrong label)      PASS*
+  Plain white image             200   no_detections                 PASS
+  Text file renamed .png        400   invalid_file/unsupported_type PASS
+  File over 10 MB               400   invalid_file/file_too_large   PASS
+  Model folder renamed          503   model_unavailable + banner    PASS
+  Two scans in a row            200   6.5 s then 1.8 s              PASS
+  Rename / remove / add         -     rows correct                  PASS
+  Scan failure                  500   scan_error                    PASS
+  No file                       400   invalid_file/missing_file     PASS
+  (* pipeline works; detection quality limited by the label list)
+
+
+5. FINDINGS
+-----------
+1. Label list doesn't fit kitchen drawers (case 1). Only "scissors" was
+   suggested, and it was wrong. If kitchen drawers matter for the demo,
+   ask B to try labels such as "spatula", "ladle", "slotted spoon",
+   "pasta server", "wooden spoon" on our own photos (labels.json is B's
+   file). Otherwise, list it under README limitations.
+2. FIXED. A renamed suggestion kept its original score ("claw hammer"
+   still showed "score 0.231"), but that score belonged to the old label.
+   Now the score text changes to "edited" (hover shows the original
+   suggestion and score). Re-tested in the browser: claw hammer shows
+   "edited", untouched rows keep their scores.
+3. FIXED. Uploads rejected for being too large or missing didn't write a
+   log line; only decode failures did. Now every rejection logs
+   "Rejected upload reason=...". New test: test_every_rejection_is_logged.
+4. The kitchen photo is a downloaded web image
+   (samples/Kitchen-Drawer-Organization_4580-1536x2048.jpg, untracked).
+   Don't commit it; use our own photos for samples/ and the demo.
+
+
+6. STILL TO DO FOR DAY 3 SIGN-OFF
+---------------------------------
+- Person B reviews POST /scan on a/upload-page.
+- Joint check with both of us at a real browser (the automated run
+  can't show these):
+    [ ] the "Scanning... the first scan loads the model and takes longer"
+        message appears while waiting (it was too quick to capture here)
+    [ ] drag and drop a photo onto the dropzone
+    [ ] scan a photo one of us took today (not the samples)
+    [ ] watch the elapsed_ms line appear in the Flask terminal
+- After sign-off: merge a/upload-page into day3-integration, then open
+  the pull request day3-integration -> main.
+- REFLECTION.md: log a "real problem and fix" entry (photos briefly
+  spooled to disk; fixed by keeping uploads in memory).
+
+Sign-off:
+  Person A: ____________________   Date: ________
+  Person B: ____________________   Date: ________

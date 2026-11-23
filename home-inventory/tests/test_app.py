@@ -94,6 +94,18 @@ class ScanRouteTests(unittest.TestCase):
         self.assertInvalid(response, "missing_file")
         scan.assert_not_called()
 
+    def test_every_rejection_is_logged(self):
+        too_big = b"\0" * (app_module.app.config["MAX_CONTENT_LENGTH"] + 1)
+        cases = [
+            ("missing_file", lambda: self.client.post("/scan", data={}, content_type="multipart/form-data")),
+            ("file_too_large", lambda: self.post_photo(too_big)),
+            ("unsupported_type", lambda: self.post_photo(b"not an image")),
+        ]
+        for reason, send in cases:
+            with self.subTest(reason=reason), self.assertLogs("app", level="INFO") as logs:
+                send()
+            self.assertTrue(any(f"reason={reason}" in line for line in logs.output), logs.output)
+
     def test_wrong_field_name_rejected(self):
         with mock.patch.object(app_module.detector, "scan") as scan:
             response = self.post_photo(image_bytes(), field="image")

@@ -289,6 +289,11 @@
 
     input.addEventListener("input", () => {
       row.dataset.source = "manual"; // an edited suggestion is now the user's item
+      if (typeof score === "number") {
+        // The detector's score belonged to the original label, not the new name.
+        scoreEl.textContent = "edited";
+        scoreEl.title = "Renamed from the suggestion “" + name + "” (score " + score + ")";
+      }
       removeBtn.setAttribute("aria-label", "Remove " + (input.value.trim() || "item"));
     });
     input.addEventListener("blur", () => {
