@@ -1,0 +1,220 @@
+PHOTO-BASED HOME INVENTORY - DAY 4 NOTES (Person A)
+====================================================
+
+What Day 4 built (saving, reopening and searching inventories), how a save
+travels through the app, and how to study the code. Paths are inside
+home-inventory/ unless they start with "..".
+
+
+1. WHAT WAS DONE ON DAY 4
+-------------------------
+- Added the last four routes to app.py:
+    POST /locations          create a location and its items
+    GET  /locations/<id>     load one saved location
+    POST /locations/<id>     replace a location's label and whole item list
+    GET  /search?q=...       find saved items by name
+  They only call the db.py functions written on Day 1. db.py did not change.
+- Every POST body is checked before the database sees it (shape, types,
+  length limits). Bad input gets a 400/415 with {"error": "message"}.
+- The page can now Save Items, show "Saved as Inventory #003", switch into
+  "Editing Inventory #003" mode, and Save Changes without duplicating.
+- New "Inventory Archive" panel: folder-style cards for every saved
+  location, a search box, clickable results, and empty states.
+- History in the sidebar now works (jumps to the archive, shows a count).
+- 21 new route tests. Whole suite: 67 tests, all pass (1 skipped
+  placeholder of B's).
+- Ran the plan's Day 4 acceptance check in a real browser, including a
+  real server restart.
+
+Day 4 decisions (also in README.md):
+- Location label: 1-200 characters. Item name: up to 100. Max 200 items.
+- Saving a location with zero items is allowed.
+- Two locations may have the same label. No delete yet.
+- POST routes only accept JSON (Content-Type: application/json).
+- Search matches item names only, case-insensitive, literal (% and _ are
+  plain characters), up to 100 characters.
+
+
+2. THE BIG PICTURE: WHAT HAPPENS WHEN YOU CLICK SAVE
+----------------------------------------------------
+   BROWSER (app.js, saveInventory)
+     1. Reads the label and every row's name. Empty label -> "Location
+        Needed" message, nothing is sent.
+     2. currentId is null (new)      -> POST /locations
+        currentId is 3 (editing #3)  -> POST /locations/3
+        The body is JSON: {"label": "...", "items": ["...", ...]}
+        |
+        v
+   FLASK (app.py)
+     3. parse_location_body() checks the JSON shape and the limits.
+     4. db.save_location() or db.replace_items() writes everything in ONE
+        transaction (all or nothing), merging "Scissors" and "scissors".
+     5. Returns db.get_location(id): exactly what is now stored.
+        |
+        v
+   BROWSER
+     6. loadEditor(data) redraws the rows from the server's answer, so you
+        see the merged list, not what you typed.
+     7. currentId = data.id: the page is now "Editing Inventory #N", so the
+        next Save updates instead of creating a duplicate.
+     8. upsertCard() puts the card at the front of the archive. No reload.
+
+Opening a saved inventory (card or search result) is the reverse:
+GET /locations/<id> -> loadEditor(data) -> rows marked "saved".
+
+
+3. FILE BY FILE
+---------------
+app.py
+  - MAX_LABEL_LENGTH, MAX_ITEM_LENGTH, MAX_ITEMS, MAX_QUERY_LENGTH: the
+    limits. index() passes them to the page (the "limits" dict), so the
+    input boxes' maxlength always matches the server.
+  - parse_location_body(): the bouncer. Checks, in order:
+      is it JSON at all?           no -> 415
+      is it a JSON object?         no -> 400
+      label: non-empty text <= 200
+      items: a list, <= 200 entries, each text <= 100
+    It raises InvalidLocation(message, status), which each route turns
+    into {"error": message}.
+  - Why "JSON only" (415)? A web page on another site can secretly submit
+    a plain HTML form to http://127.0.0.1:5000. Browsers won't let it send
+    application/json to another site without asking first, so requiring
+    JSON blocks that trick.
+  - create_location(): validate -> db.save_location -> 201 + the location.
+    201 means "Created" (200 means just "OK").
+  - location(location_id): one function for GET and POST on the same URL.
+    POST validates and calls db.replace_items; LookupError (no such id)
+    becomes 404. Both then return db.get_location.
+  - search(): trims q, rejects > 100 chars, returns db.search_items(q).
+  - location_cards(): builds the card data for the home page: id, label,
+    item_count and the first 3 item names ("preview").
+
+templates/index.html
+  - Location panel: a "mode chip" (New inventory / Editing Inventory #N)
+    and a New Location button.
+  - Actions row: Scan Items (secondary, outlined) and Save Items (primary).
+  - <section id="archive">: search box, results list, card grid, empty
+    states. The History link is just <a href="#archive">.
+  - <template id="card-template"> and <template id="result-template">:
+    HTML that app.js copies for each card / result.
+  - <script id="saved-data" type="application/json">{{ saved|tojson }}
+    The saved locations are handed to JavaScript as JSON. "tojson" turns
+    < > & into < etc., so a location named </script><script>... can't
+    break out of the tag. app.js reads it with JSON.parse.
+
+static/app.js (the new code is in the "Day 4" block at the bottom)
+  - State: currentId (null = new inventory), dirty (unsaved edits?),
+    loadingRows (true while filling rows from the database, so that
+    doesn't count as an edit).
+  - markDirty(): called when you type in the label, edit/add/remove a row,
+    or a scan adds suggestions. updateMode() then redraws the chip, the
+    Save button text, the New Location button and the card highlight.
+  - confirmDiscard(): asks before throwing away unsaved changes (opening
+    another inventory, New Location). "beforeunload" asks before closing
+    the tab.
+  - saveInventory(): see section 2. Handles four outcomes: success,
+    server said no (shows its "error" message), 404 (inventory vanished:
+    keeps your list as a new one), and network failure.
+  - openInventory(id): GET /locations/<id>, fill the editor, clear the old
+    photo (photos are never stored), show "Editing Inventory #N".
+  - Cards: "saved" is a JS array; upsertCard/removeCard change it and
+    renderCards() redraws the grid from the template. All text goes in with
+    textContent.
+  - Search: typing waits 200 ms after the last key (a "debounce") before
+    calling /search, so it doesn't send a request per keystroke.
+    searchToken makes sure a slow old answer can't overwrite a newer one.
+    highlight() wraps the matching part in <mark> using text nodes, never
+    innerHTML.
+  - Item rows now have three labels on the right: "score 0.231" (from the
+    detector), "added" (typed by you), "saved" (loaded from the database),
+    and "edited" once you rename a suggestion.
+
+static/style.css
+  - New colours: --lavender, --lavender-deep (editing state, archive),
+    --rose (folder icons, "unsaved changes").
+  - .folder-card + .folder-tab: the tab is a small box stuck to the top
+    left of the card with no bottom border, which makes the folder shape.
+  - .card-label uses -webkit-line-clamp: 2 to allow two lines and then
+    "...". The full name is in the card's tooltip.
+  - .is-current: the inventory you're editing (lavender card + EDITING).
+
+tests/test_app.py, class LocationRouteTests
+  - setUp() gives every test its own fresh database file.
+  - Limits are tested at the edge: exactly 200 characters works, 201 fails.
+  - test_non_json_request_rejected: a plain form post gets 415.
+  - test_acceptance_save_restart_search_edit: the plan's whole acceptance
+    check in one test. "Restart" = a brand-new test client + init_db() on
+    the same file.
+  - test_index_embeds_saved_locations_safely: a location named
+    <script>alert(1)</script> must not appear as real HTML.
+
+
+4. HOW TO STUDY THE DAY 4 CODE (RECOMMENDED ORDER)
+--------------------------------------------------
+  1. app.py, parse_location_body   What the server accepts.
+  2. app.py, the four routes       Each is short: validate, call db, reply.
+  3. LocationRouteTests            One test per rule; find the line in
+                                   app.py that makes each pass.
+  4. app.js, saveInventory and     The two journeys: page -> database and
+     openInventory                 database -> page.
+  5. app.js, updateMode            How one function keeps the chip, button
+                                   and cards in sync with currentId/dirty.
+  6. app.js, runSearch             Debounce, stale answers, highlighting.
+
+
+5. BREAKPOINTS FOR DAY 4
+------------------------
+Exercise A - follow a save through Flask (VS Code, "Flask app" config):
+  1. Breakpoint on "label, names = parse_location_body()" in
+     create_location().
+  2. In the page, type a location, add "Scissors" and "scissors", click
+     Save Items.
+  3. F11 into parse_location_body; watch "body", "label", "names".
+  4. Step over db.save_location; hover "location_id".
+  5. Continue. The page shows only one "Scissors": db.py merged them.
+
+Exercise B - the browser side (F12 in the browser):
+  1. Sources -> static/app.js -> breakpoint inside saveInventory on the
+     "loadEditor(data)" line.
+  2. Save. Hover "data" to see exactly what the server stored.
+  3. Network tab: click the /locations request, open "Payload" (what was
+     sent) and "Response" (what came back).
+
+Exercise C - prove the duplicate protection:
+  Save once (#N appears), then edit an item and save again. Check the
+  Network tab: the second request goes to /locations/N, not /locations.
+
+
+6. OTHER WAYS TO LEARN BY POKING AT IT
+--------------------------------------
+- In app.py, change MAX_ITEM_LENGTH to 10 and reload: the "Add an item"
+  box now stops at 10 characters (the page reads the same constant). Run
+  the tests: test_item_length_limit still passes because it uses the
+  constant too. Change it back.
+- Delete the "if not request.is_json" check and run the tests:
+  test_non_json_request_rejected fails. Put it back.
+- In the browser console (F12 -> Console), try the API by hand:
+    fetch("/search?q=sciss").then(r => r.json()).then(console.log)
+    fetch("/locations/1").then(r => r.json()).then(console.log)
+- Search for "%" with and without items containing "%". Then read
+  db.search_items to see why instr() matters.
+
+
+7. KNOWN LIMITATIONS
+--------------------
+- No delete. Settings and Help are still "soon".
+- Search looks at item names, not location labels.
+- Timestamps are stored to the second, so two locations saved within the
+  same second can swap order after a restart. Harmless.
+- The label list only covers tools and cleaning products (see Day 3 case
+  1); kitchen items need to be added by hand unless B expands it.
+
+
+8. WHAT COMES NEXT
+------------------
+Tue Nov 24 (buffer):
+- Joint check with B in a real browser (Day 3 section 6 + this Day 4 flow).
+- Photograph a cluttered bin of our own for samples/.
+- REFLECTION.md entries (good Day 4 one: the duplicate-save problem and
+  the "editing mode" fix, or JSON-only posts).
+Day 5 (Sat Nov 28): clean-machine + offline test following the README.

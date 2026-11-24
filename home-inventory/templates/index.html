@@ -26,6 +26,12 @@
     <symbol id="i-check" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm-1.5 14.2L6.3 12l1.4-1.4 2.8 2.8 5.8-5.8 1.4 1.4z"/></symbol>
     <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-2h2zm0-4h-2V7h2z"/></symbol>
     <symbol id="i-info" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm1 15h-2v-6h2zm0-8h-2V7h2z"/></symbol>
+    <symbol id="i-save" viewBox="0 0 24 24"><path d="M5 3h11l5 5v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2zm2 2v5h8V5zm5 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></symbol>
+    <symbol id="i-folder" viewBox="0 0 24 24"><path d="M3 6a2 2 0 0 1 2-2h4.6l2 2H19a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+    <symbol id="i-search" viewBox="0 0 24 24"><path d="M10 3a7 7 0 1 0 4.2 12.6l5.1 5.1 1.4-1.4-5.1-5.1A7 7 0 0 0 10 3zm0 2a5 5 0 1 1 0 10 5 5 0 0 1 0-10z"/></symbol>
+    <symbol id="i-pencil" viewBox="0 0 24 24"><path d="M15.2 3.8a2 2 0 0 1 2.8 0l2.2 2.2a2 2 0 0 1 0 2.8L9 20H4v-5zM13.8 7.6 6 15.4V18h2.6l7.8-7.8z"/></symbol>
+    <symbol id="i-new" viewBox="0 0 24 24"><path d="M6 2h8l6 6v12a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2zm7 1.5V9h5.5zM11 12v3H8v2h3v3h2v-3h3v-2h-3v-3z"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M13 5l7 7-7 7-1.4-1.4 4.6-4.6H4v-2h12.2l-4.6-4.6z"/></symbol>
   </svg>
 
   <div class="desktop">
@@ -38,8 +44,9 @@
         <ul class="nav">
           <li><a class="nav-item is-active" href="{{ url_for('index') }}" aria-current="page">
             <svg aria-hidden="true"><use href="#i-upload"/></svg><span>Upload</span></a></li>
-          <li><span class="nav-item is-disabled" aria-disabled="true" title="Coming soon">
-            <svg aria-hidden="true"><use href="#i-clock"/></svg><span>History</span><em class="soon">soon</em></span></li>
+          <li><a class="nav-item" href="#archive">
+            <svg aria-hidden="true"><use href="#i-clock"/></svg><span>History</span>
+            <em class="nav-count" id="nav-count" title="Saved locations">{{ saved|length }}</em></a></li>
           <li><span class="nav-item is-disabled" aria-disabled="true" title="Coming soon">
             <svg aria-hidden="true"><use href="#i-gear"/></svg><span>Settings</span><em class="soon">soon</em></span></li>
           <li><span class="nav-item is-disabled" aria-disabled="true" title="Coming soon">
@@ -77,11 +84,22 @@
         </div>
         {% endif %}
 
-        <div class="panel panel-location">
-          <label class="field-label" for="location">
-            <svg aria-hidden="true"><use href="#i-pin"/></svg>Location
-          </label>
-          <input id="location" name="location" type="text" maxlength="200" autocomplete="off"
+        <div class="panel panel-location" id="location-panel">
+          <div class="panel-head">
+            <label class="field-label" for="location">
+              <svg aria-hidden="true"><use href="#i-pin"/></svg>Location
+            </label>
+            <!-- Mode: "New inventory" or "Editing Inventory #003" (set by app.js) -->
+            <span class="mode-chip" id="mode-chip">
+              <span class="mode-dot" aria-hidden="true"></span>
+              <span id="mode-text">New inventory</span>
+              <span class="mode-dirty" id="mode-dirty" hidden>· unsaved changes</span>
+            </span>
+            <button type="button" class="btn btn-tiny btn-ghost" id="new-location-btn" hidden>
+              <svg aria-hidden="true"><use href="#i-new"/></svg>New Location
+            </button>
+          </div>
+          <input id="location" name="location" type="text" maxlength="{{ limits.label }}" autocomplete="off"
                  placeholder="e.g. Garage / Workbench / Top drawer">
         </div>
 
@@ -128,13 +146,14 @@
         </div>
 
         <section class="items" aria-labelledby="items-title">
-          <h2 id="items-title"><svg aria-hidden="true"><use href="#i-list"/></svg>Items Found</h2>
+          <h2 id="items-title"><svg aria-hidden="true"><use href="#i-list"/></svg>Items
+            <span class="items-count" id="items-count"></span></h2>
           <ul class="item-list" id="item-list"></ul>
           <p class="item-empty" id="item-empty">No items yet. Scan a photo or add items by hand.</p>
 
           <form class="add-item" id="add-item-form" autocomplete="off">
             <label class="visually-hidden" for="add-item-input">New item name</label>
-            <input id="add-item-input" type="text" maxlength="100" placeholder="Add an item by hand…">
+            <input id="add-item-input" type="text" maxlength="{{ limits.item }}" placeholder="Add an item by hand…">
             <button type="submit" class="btn btn-dashed">
               <svg aria-hidden="true"><use href="#i-plus"/></svg>Add Item
             </button>
@@ -142,13 +161,59 @@
         </section>
 
         <div class="actions">
-          <button type="button" class="btn btn-primary" id="scan-btn" disabled>
+          <button type="button" class="btn btn-secondary" id="scan-btn" disabled>
             <svg aria-hidden="true"><use href="#i-spark"/></svg><span id="scan-btn-label">Scan Items</span>
+          </button>
+          <button type="button" class="btn btn-primary" id="save-btn">
+            <svg aria-hidden="true"><use href="#i-save"/></svg><span id="save-btn-label">Save Items</span>
           </button>
         </div>
 
+        <!-- Inventory archive: saved locations and search (Day 4). -->
+        <section class="archive" id="archive" aria-labelledby="archive-title">
+          <div class="archive-bar">
+            <h2 id="archive-title"><svg aria-hidden="true"><use href="#i-folder"/></svg>Inventory Archive</h2>
+            <span class="archive-count" id="archive-count"></span>
+          </div>
+
+          <div class="archive-body">
+            <form class="search" id="search-form" role="search" autocomplete="off">
+              <label class="visually-hidden" for="search-input">Search saved items</label>
+              <svg class="search-icon" aria-hidden="true"><use href="#i-search"/></svg>
+              <input id="search-input" type="search" maxlength="{{ limits.query }}"
+                     placeholder="Search all saved items… (e.g. scissors)">
+              <button type="button" class="icon-btn search-clear" id="search-clear" aria-label="Clear search" hidden>
+                <svg aria-hidden="true"><use href="#i-x"/></svg>
+              </button>
+            </form>
+
+            <!-- Search results (shown while the search box has text). -->
+            <div class="search-results" id="search-results" hidden>
+              <div class="results-head">
+                <p class="results-summary" id="results-summary" aria-live="polite"></p>
+                <button type="button" class="link-btn" id="show-all-btn">Show all locations</button>
+              </div>
+              <ul class="result-list" id="result-list"></ul>
+              <div class="archive-empty" id="results-empty" hidden>
+                <svg aria-hidden="true"><use href="#i-search"/></svg>
+                <p id="results-empty-text"></p>
+                <button type="button" class="btn btn-small btn-ghost" id="results-show-all">Show all locations</button>
+              </div>
+            </div>
+
+            <!-- Saved location cards (shown when the search box is empty). -->
+            <div id="saved-view">
+              <ul class="card-grid" id="card-grid"></ul>
+              <div class="archive-empty" id="archive-empty" hidden>
+                <svg aria-hidden="true"><use href="#i-folder"/></svg>
+                <p>No saved locations yet. Scan a drawer, check the items, then click <strong>Save Items</strong>.</p>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <footer class="status-line">
-          <span>DB: {{ locations|length }} saved location{{ '' if locations|length == 1 else 's' }}</span>
+          <span id="db-count">DB: {{ saved|length }} saved location{{ '' if saved|length == 1 else 's' }}</span>
           <span>Detector: {{ 'ready' if model.ready else 'not ready' }}</span>
           <span>Photos are never stored</span>
         </footer>
@@ -159,7 +224,7 @@
   <!-- Template for one editable item row (cloned by app.js). -->
   <template id="item-row-template">
     <li class="item-row">
-      <input class="item-name" type="text" maxlength="100" aria-label="Item name">
+      <input class="item-name" type="text" maxlength="{{ limits.item }}" aria-label="Item name">
       <span class="item-score"></span>
       <button type="button" class="icon-btn item-remove">
         <svg aria-hidden="true"><use href="#i-trash"/></svg>
@@ -167,6 +232,41 @@
     </li>
   </template>
 
+  <!-- One saved-location card (cloned by app.js; all text is set with textContent). -->
+  <template id="card-template">
+    <li>
+      <button type="button" class="folder-card">
+        <span class="folder-tab" aria-hidden="true"></span>
+        <span class="card-top">
+          <svg class="card-icon" aria-hidden="true"><use href="#i-folder"/></svg>
+          <span class="card-label"></span>
+          <span class="card-editing">Editing</span>
+        </span>
+        <span class="card-meta"></span>
+        <span class="card-preview"></span>
+        <span class="card-open">Open <svg aria-hidden="true"><use href="#i-arrow"/></svg></span>
+      </button>
+    </li>
+  </template>
+
+  <!-- One search result row (cloned by app.js). -->
+  <template id="result-template">
+    <li>
+      <button type="button" class="result-row">
+        <span class="result-item"></span>
+        <span class="result-where">
+          <svg aria-hidden="true"><use href="#i-folder"/></svg>
+          <span class="result-label"></span>
+          <span class="result-id"></span>
+        </span>
+        <svg class="result-arrow" aria-hidden="true"><use href="#i-arrow"/></svg>
+      </button>
+    </li>
+  </template>
+
+  <!-- Saved locations for the archive. Flask's tojson escapes <, > and & so names can't break out. -->
+  <script id="saved-data" type="application/json">{{ saved|tojson }}</script>
+  <script id="limits-data" type="application/json">{{ limits|tojson }}</script>
   <script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
