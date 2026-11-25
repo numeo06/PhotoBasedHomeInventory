@@ -38,15 +38,19 @@
   const addInput = $("add-item-input");
 
   let currentFile = null;
+  let photoVersion = 0;
   let previewUrl = null;
   let scanning = false;
 
   // Day 4 state: which saved inventory is open, and whether it has unsaved edits.
   let currentId = null; // null = a new, unsaved inventory
   let dirty = false;
+  let editorVersion = 0;
+  let editVersion = 0;
   let loadingRows = false; // true while rows are filled from a saved inventory
   const markDirty = () => {
     if (!loadingRows) {
+      editVersion += 1;
       dirty = true;
       updateMode();
     }
@@ -87,6 +91,7 @@
   }
 
   function resetPhoto() {
+    photoVersion += 1;
     currentFile = null;
     photoInput.value = "";
     if (previewUrl) {
@@ -222,6 +227,7 @@
       return;
     }
 
+    const submittedPhotoVersion = photoVersion;
     scanning = true;
     updateScanButton();
     showStatus("scanning", "Scanning…",
@@ -244,6 +250,8 @@
       scanning = false;
       updateScanButton();
     }
+
+    if (submittedPhotoVersion !== photoVersion) return;
 
     if (data === null) {
       showStatus("error", "Can't Reach the App",
@@ -441,6 +449,7 @@
 
   // Replace the editor's label and rows with a saved inventory (or clear them).
   function loadEditor(location) {
+    editorVersion += 1;
     loadingRows = true;
     itemList.replaceChildren();
     locationInput.value = location ? location.label : "";
@@ -489,6 +498,8 @@
     }
 
     const wasNew = currentId === null;
+    const submittedEditorVersion = editorVersion;
+    const submittedEditVersion = editVersion;
     saving = true;
     updateMode();
     let response = null;
@@ -505,6 +516,14 @@
     } finally {
       saving = false;
       updateMode();
+    }
+
+    if (submittedEditorVersion !== editorVersion) {
+      if (response?.ok && typeof data?.id === "number") {
+        upsertCard(data);
+        if (searchInput.value.trim()) runSearch();
+      }
+      return;
     }
 
     if (response === null) {
@@ -526,10 +545,18 @@
       return;
     }
 
-    loadEditor(data); // show exactly what was stored (duplicates merged, blanks dropped)
+    const editedWhileSaving = submittedEditVersion !== editVersion;
+    if (editedWhileSaving) {
+      // Keep newer edits associated with the saved ID for the next Save Changes.
+      currentId = data.id;
+      updateMode();
+    } else {
+      loadEditor(data); // show exactly what was stored (duplicates merged, blanks dropped)
+    }
     upsertCard(data);
     showStatus("success", wasNew ? "Saved as Inventory " + padId(data.id) : "Inventory " + padId(data.id) + " Updated",
-      plural(data.items.length, "item") + " saved under “" + data.label + "”. Find them anytime with the search below.");
+      editedWhileSaving ? "Your newer edits are still unsaved." :
+        plural(data.items.length, "item") + " saved under “" + data.label + "”. Find them anytime with the search below.");
     if (searchInput.value.trim()) runSearch(); // keep visible search results up to date
   }
 
