@@ -115,14 +115,34 @@ detector.scan(image_bytes) -> {"status": "ok" | "no_detections" | "model_unavail
   `invalid_file` comes from the route's validation only; `detector.scan()` keeps its four statuses.
 - Each scan logs its elapsed time in the Flask terminal.
 
+## Day 4 decisions: saving and search
+
+| Route | Body / query | Success | Errors |
+|---|---|---|---|
+| `POST /locations` | `{"label": str, "items": [str]}` | 201 `{"id", "label", "items"}` | 400 invalid body, 415 not JSON |
+| `GET /locations/<id>` | - | 200 `{"id", "label", "items"}` | 404 |
+| `POST /locations/<id>` | same as create; replaces the whole list | 200 updated location | 400, 404, 415 |
+| `GET /search?q=` | `q` up to 100 chars | 200 `{"query", "results": [{"item", "location_id", "location_label"}]}` | 400 query too long |
+
+Errors are `{"error": "message"}`.
+
+- Limits: location label 1-200 characters, item names up to 100, at most 200 items per location.
+  Saving a location with zero items is allowed.
+- Item names are trimmed; blanks are skipped and names that match after casefolding are merged (db.py).
+- Two locations may share a label. Deleting a location is not supported yet.
+- The POST routes only accept `application/json`, so a plain form on another website can't post to the app.
+- Search matches item names only (case-insensitive, literal: `%` and `_` are plain characters).
+- On the page, saving switches to "Editing Inventory #N", so a second save updates instead of duplicating.
+  Reopened inventories show their items but no photo (photos are never stored); a new photo can be
+  scanned to add suggestions.
+
 ## What is stored
 
 Locations (label, timestamps) and confirmed item names. Photos are never stored.
 
-## Current limitations (Day 2)
+## Current limitations (Day 4)
 
-- Saving, reopening and searching locations (`/locations`, `/search`) come on Day 4. The upload page
-  has no Save button yet, and History, Settings and Help are marked "soon".
+- Settings and Help are marked "soon". Locations can't be deleted from the page.
 - The detector only suggests labels from `config/labels.json`; everything else is added by hand.
 # PhotoBasedHomeInventory
 Local web app that answers “where did I put that?”: upload a drawer photo, review AI-suggested items from an on-device OWL-ViT model, save them to SQLite, and search by keyword. No API key needed.
