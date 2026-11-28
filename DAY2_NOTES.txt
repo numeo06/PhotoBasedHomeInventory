@@ -243,8 +243,8 @@ Exercise C - prove the validation:
   B should review the route rather than rewire it.
 - Handoff sent: Day_2_Role_A_Upload_Handoff.pdf (in Downloads).
 - Asked B to: pin torch/transformers/huggingface_hub in requirements.txt,
-  merge B's README text (appended at the bottom of home-inventory/README.md)
-  into one README, and add the ARM64 install notes.
+  consolidate the setup notes into the root README.md, and add the ARM64
+  install notes.
 
 
 9. WHAT COMES NEXT
