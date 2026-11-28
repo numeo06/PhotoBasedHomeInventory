@@ -77,7 +77,9 @@ Using the existing Windows environment and downloaded model, `pip check` passed,
 
 **Num (Role A).** Built the upload and preview UI, editable item list, and validated Flask scan route that calls the detector. Built the SQLite inventory layer and the browser workflow for saving, reopening, updating, and searching inventories. Recorded the Day 3 scan and upload checks and the Day 4 browser save and search check. [Day 1 notes](DAY1_NOTES.txt), [Day 3 test results](DAY3_TEST_RESULTS.txt), [Day 4 notes](DAY4_NOTES.txt)
 
-**Carter (Role B).** Set up the pinned OWL-ViT download and CPU inference, integrated the detector into the app's service interface, and added sample photos, a smoke check, and a timing script for detector verification. Carter also committed fixes for delayed save and scan responses in `162a137`, preserving newer editor changes and discarding stale scan results after a photo change. That commit is on `b/day4-editor-fixes` and is absent from the current `main`. **Before submission:** Confirm the submission branch and who performed the final delayed-response verification.
+**Carter (Role B).** Set up the pinned OWL-ViT download and CPU inference, integrated the detector into the app's service interface, and added sample photos, a smoke check, and a timing script for detector verification. Carter also committed fixes for delayed save and scan responses in `162a137`, preserving newer editor changes and discarding stale scan results after a photo change. That commit is on `b/day4-editor-fixes` and is absent from the current `main`. Carter repeated the delayed-response checks in the browser. **Before submission:** Confirm whether the submission should include the fix.
+
+See the [team reflection](REFLECTION.md) for Section 9C.
 
 ## Known limitations and unfinished features
 
